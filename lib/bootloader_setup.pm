@@ -799,7 +799,7 @@ sub zkvm_add_interface {
     my %ifacecfg = ();
     my $netdev   = get_required_var('NETDEV');
 
-    if($netdev =~ /^br[0-9]+$/) {
+    if ($netdev =~ /^br[0-9]+$/) {
         # VMs should be specified with known-to-work network interface.
         $ifacecfg{model}  = {type => 'virtio'};
         $ifacecfg{type}   = 'bridge';
@@ -811,9 +811,9 @@ sub zkvm_add_interface {
         my $mac  = get_required_var('VIRSH_MAC');
 
         # Direct access to the tap device, use of $vtap temporarily
-        $ifacecfg{model}  = {type => 'direct'};
-        $ifacecfg{source} = {dev => $netdev, mode => 'bridge'};
-        $ifacecfg{target} = {dev => 'macvtap' . $vtap};
+        $ifacecfg{model}  = {type    => 'direct'};
+        $ifacecfg{source} = {dev     => $netdev, mode => 'bridge'};
+        $ifacecfg{target} = {dev     => 'macvtap' . $vtap};
         $ifacecfg{mac}    = {address => $mac};
     }
 
