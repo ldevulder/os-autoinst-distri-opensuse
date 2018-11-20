@@ -795,13 +795,30 @@ sub zkvm_add_pty {
 }
 
 sub zkvm_add_interface {
-    my ($svirt) = shift;
-    # temporary use of hardcoded '+4' to workaround messed up network setup on z/KVM
-    my $vtap   = $svirt->instance + 4;
-    my $netdev = get_required_var('NETDEV');
-    my $mac    = get_required_var('VIRSH_MAC');
-    # direct access to the tap device, use of $vtap temporarily
-    $svirt->add_interface({type => 'direct', source => {dev => $netdev, mode => 'bridge'}, target => {dev => 'macvtap' . $vtap}, mac => {address => $mac}});
+    my ($svirt)  = shift;
+    my %ifacecfg = ();
+    my $netdev   = get_required_var('NETDEV');
+
+    if($netdev =~ /^br[0-9]+$/) {
+        # VMs should be specified with known-to-work network interface.
+        $ifacecfg{model}  = {type => 'virtio'};
+        $ifacecfg{type}   = 'bridge';
+        $ifacecfg{source} = {bridge => $netdev};
+    }
+    else {
+        # Temporary use of hardcoded '+4' to workaround messed up network setup on z/KVM
+        my $vtap = $svirt->instance + 4;
+        my $mac  = get_required_var('VIRSH_MAC');
+
+        # Direct access to the tap device, use of $vtap temporarily
+        $ifacecfg{model}  = {type => 'direct'};
+        $ifacecfg{source} = {dev => $netdev, mode => 'bridge'};
+        $ifacecfg{target} = {dev => 'macvtap' . $vtap};
+        $ifacecfg{mac}    = {address => $mac};
+    }
+
+    # Create the network device
+    $svirt->add_interface(\%ifacecfg);
 }
 
 # On Hyper-V and Xen PV we need to add special framebuffer provisions

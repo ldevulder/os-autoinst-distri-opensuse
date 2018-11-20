@@ -75,8 +75,19 @@ sub run {
 
     if (!get_var("BOOT_HDD_IMAGE") or (get_var('PATCHED_SYSTEM') and !get_var('ZDUP'))) {
         if (check_var("VIDEOMODE", "text")) {
-            wait_serial("run 'yast.ssh'", 300) || die "linuxrc didn't finish";
-            select_console("installation");
+            wait_serial("8021q: adding VLAN", 300);
+            # Get IP address
+            my @line = split(' ', wait_serial("ok, ip = ", 30));
+            my @ip = split(/\//, $line[3]);
+            wait_serial("run 'yast.ssh'", 60) || die "linuxrc didn't finish";
+
+            # Add missing hostname for console initialization
+            foreach my $console ('installation', 'x11', 'iucvconn', 'install-shell', 'root-console', 'user-console', 'log-console') {
+                console($console)->set_args(hostname => $ip[0]);
+                console($console)->disable_vnc_stalls if $console ne 'iucvconn';
+            }
+
+            select_console('installation');
             type_string("TERM=linux yast.ssh\n") && record_soft_failure('bsc#1054448');
         }
         else {

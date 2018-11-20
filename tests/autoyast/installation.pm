@@ -29,7 +29,7 @@ my $maxtime            = 2000 * get_var('TIMEOUT_SCALE', 1);    #Max waiting tim
 my $check_time         = 50;                                    #Period to check screen during stage 1 and 2
 
 # Downloading updates takes long time
-$maxtime = 5500 if is_caasp('qam');
+$maxtime = 5500 * get_var('TIMEOUT_SCALE', 1) if is_caasp('qam');
 
 sub accept_license {
     send_key $cmd{accept};
@@ -124,6 +124,11 @@ sub run {
         send_key 'ret';    # boot from hard disk
         return;
     }
+
+    if (check_var('BACKEND', 'svirt') && check_var('ARCH', 's390x')) {
+        assert_screen 'installation-started';
+    }
+
     my @needles           = qw(bios-boot nonexisting-package reboot-after-installation linuxrc-install-fail scc-invalid-url warning-pop-up autoyast-boot);
     my $expected_licenses = get_var('AUTOYAST_LICENSE');
     push @needles, 'autoyast-confirm'        if get_var('AUTOYAST_CONFIRM');
@@ -132,11 +137,12 @@ sub run {
     push @needles, 'linux-login-casp' if is_caasp;
     # Autoyast reboot automatically without confirmation, usually assert 'bios-boot' that is not existing on zVM
     # So push a needle to check upcoming reboot on zVM that is a way to indicate the stage done
-    push @needles, 'autoyast-stage1-reboot-upcoming' if check_var('ARCH', 's390x');
+    push @needles, 'autoyast-stage1-reboot-upcoming' if check_var('ARCH', 's390x') && !check_var('BACKEND', 'svirt');
+    push @needles, 'zkvm-reboot-upcoming' if check_var('ARCH', 's390x') && check_var('BACKEND', 'svirt');
     # Import untrusted certification for SMT
     push @needles, 'untrusted-ca-cert' if get_var('SMT_URL');
     # Workaround for removing package error during upgrade
-    push(@needles, 'ERROR-removing-package') if get_var("AUTOUPGRADE");
+    push @needles, 'ERROR-removing-package' if get_var("AUTOUPGRADE");
     # If it's beta, we may match license screen before pop-up shows, so check for pop-up first
     if (get_var('BETA')) {
         push(@needles, 'inst-betawarning');
@@ -158,7 +164,8 @@ sub run {
     until (match_has_tag('reboot-after-installation')
           || match_has_tag('bios-boot')
           || match_has_tag('autoyast-stage1-reboot-upcoming')
-          || match_has_tag('linux-login-casp'))
+          || match_has_tag('linux-login-casp')
+          || match_has_tag('zkvm-reboot-upcoming'))
     {
         #Verify timeout and continue if there was a match
         next unless verify_timeout_and_check_screen(($timer += $check_time), \@needles);
@@ -249,16 +256,29 @@ sub run {
     }
 
     # We use startshell boot option on s390x to sync actions with reboot, normally is not used
-    # Cannot verify second stage properly on s390x, so recoonect to already installed system
-    if (check_var('ARCH', 's390x')) {
+    # Cannot verify second stage properly on s390x, so reconnect to already installed system
+    if (check_var('ARCH', 's390x') && !check_var('BACKEND', 'svirt')) {
         reconnect_s390(timeout => 500);
         return;
+    }
+
+    # Reconnect to installation console on zkvm for second stage
+    if (check_var('ARCH', 's390x') && check_var('BACKEND', 'svirt')) {
+        wait_serial('GNU GRUB', 60) || die 'Could not find GRUB screen';
+
+        # It seems that sometimes GRUB hang and stop the timeout (why?)
+        select_console('svirt');
+        save_svirt_pty;
+        type_line_svirt '', expect => "run the command 'yast.ssh'", timeout => 300, fail_message => "reboot didn't happen";
+        reset_consoles;
+        select_console('installation');
+        type_string("TERM=linux yast.ssh\n");
     }
 
     # CaaSP does not have second stage
     return if is_caasp;
     # Second stage starts here
-    $maxtime = 1000;
+    $maxtime = 1000 * get_var('TIMEOUT_SCALE', 1);
     $timer   = 0;
     $stage   = 'stage2';
 
